@@ -18,7 +18,7 @@ spec:
       - name: dockerhub-secret
       containers:
       - name: discounts
-        image: chinmayee606/restauranty-discounts:latest
+        image: acrchinmayee101.azurecr.io/restauranty-discounts:latest
         ports:
         - containerPort: 3002
         env:

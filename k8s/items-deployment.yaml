@@ -18,7 +18,7 @@ spec:
       - name: dockerhub-secret
       containers:
       - name: items
-        image: chinmayee606/restauranty-items:latest
+        image: acrchinmayee101.azurecr.io/restauranty-items:latest
         ports:
         - containerPort: 3003
         env:
