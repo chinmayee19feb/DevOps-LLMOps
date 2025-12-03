@@ -14,7 +14,7 @@ metadata:
     project: restauranty
     created-by: chinmayee
 spec:
-  ingressClassName: azure-application-gateway
+  ingressClassName: azure-application-gateway # Ensure this matches your IngressClass name 
   rules:
   - http:
       paths:
