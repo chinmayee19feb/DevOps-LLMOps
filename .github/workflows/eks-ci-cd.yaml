@@ -2,7 +2,7 @@ name: EKS Restauranty CI/CD
 
 on:
   push:
-    branches: [ aws-eks-deployment ]  # Changed from main to aws-eks-deployment
+    branches: [ aws-eks-deployment ]
     paths:
       - 'client/**'
       - 'backend/auth/**'
