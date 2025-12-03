@@ -1,0 +1,91 @@
+# k8s/aws-eks/mongodb-deployment.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongo-init-script
+  namespace: chinmayee
+data:
+  init.js: |
+    db = db.getSiblingDB('flor');
+    
+    // List of collections your app needs
+    const collections = ['users', 'items', 'orders', 'campaigns', 'coupons', 'dietaries'];
+    
+    collections.forEach(collection => {
+      if (!db.getCollectionNames().includes(collection)) {
+        db.createCollection(collection);
+        print('Created ' + collection + ' collection');
+      }
+    });
+---
+# Persistent Volume Claim for MongoDB data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-pvc
+  namespace: chinmayee
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi  # 5GB storage
+  storageClassName: gp2  # ← Use gp2 storage class
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+  namespace: chinmayee
+  labels:
+    app: mongodb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:6.0
+          ports:
+            - containerPort: 27017
+          volumeMounts:
+          - name: init-script
+            mountPath: /docker-entrypoint-initdb.d/
+          - name: mongodb-data
+            mountPath: /data/db  # MongoDB data directory
+          resources:
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+          env:
+          - name: MONGO_INITDB_DATABASE
+            value: "flor"
+      volumes:
+      - name: init-script
+        configMap:
+          name: mongo-init-script
+      - name: mongodb-data
+        persistentVolumeClaim:
+          claimName: mongodb-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+  namespace: chinmayee
+spec:
+  selector:
+    app: mongodb
+  ports:
+    - protocol: TCP
+      port: 27017
+      targetPort: 27017
