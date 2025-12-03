@@ -8,7 +8,7 @@ metadata:
     # appgw.ingress.kubernetes.io/health-probe-path: "/api/auth"
     # appgw.ingress.kubernetes.io/health-probe-status-codes: "200"
     appgw.ingress.kubernetes.io/request-timeout: "30"
-    appgw.ingress.kubernetes.io/backend-protocol: "http"
+    appgw.ingress.kubernetes.io/backend-protocol: "http" # Can be "http" or "https" based on your backend servicesS
   labels:
     owner: chinmayee
     project: restauranty
