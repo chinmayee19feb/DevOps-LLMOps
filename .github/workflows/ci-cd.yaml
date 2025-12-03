@@ -4,10 +4,10 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'frontend/**'
-      - 'auth/**'
-      - 'discounts/**'
-      - 'items/**'
+      - 'client/**'
+      - 'backend/auth/**'
+      - 'backend/discounts/**'
+      - 'backend/items/**'
       - 'k8s/**'
   workflow_dispatch:
 
@@ -44,8 +44,19 @@ jobs:
         SHORT_SHA=${GITHUB_SHA:0:8}
         IMAGE_TAG="${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/restauranty-${{ matrix.service }}:$SHORT_SHA"
         
+        # Determine build context based on service
+        if [ "${{ matrix.service }}" == "frontend" ]; then
+          BUILD_CONTEXT="./client"
+        elif [ "${{ matrix.service }}" == "auth" ]; then
+          BUILD_CONTEXT="./backend/auth"
+        elif [ "${{ matrix.service }}" == "discounts" ]; then
+          BUILD_CONTEXT="./backend/discounts"
+        elif [ "${{ matrix.service }}" == "items" ]; then
+          BUILD_CONTEXT="./backend/items"
+        fi
+        
         # Build the image
-        docker build -t $IMAGE_TAG ./${{ matrix.service }}
+        docker build -t $IMAGE_TAG $BUILD_CONTEXT
         
         # Push to ACR
         docker push $IMAGE_TAG

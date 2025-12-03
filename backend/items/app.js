@@ -28,6 +28,14 @@ app.get("/api/items", (req, res, next) => {
     res.json("Items Server UP!");
 });
 
+app.get("/", (req, res) => {
+  res.json({ status: "OK", service: "items" });
+});
+
+app.get("/health", (req, res) => {
+  res.json({ status: "OK", service: "items" });
+});
+
 const itemsRoutes = require("./routes/items.routes");
 app.use("/api/items/items", itemsRoutes);
 
