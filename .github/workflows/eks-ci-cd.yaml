@@ -3,13 +3,7 @@ name: EKS Restauranty CI/CD
 on:
   push:
     branches: [ aws-eks-deployment ]
-    paths:
-      - 'client/**'
-      - 'backend/auth/**'
-      - 'backend/discounts/**'
-      - 'backend/items/**'
-      - 'k8s/**'
-  workflow_dispatch:  # Allows manual trigger
+  workflow_dispatch:
 
 env:
   AWS_REGION: us-east-2
@@ -26,179 +20,143 @@ jobs:
         service: [frontend, auth, discounts, items]
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        ref: aws-eks-deployment  # Ensure checking out the right branch
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: 'aws-eks-deployment'
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
 
-    - name: Build and push Docker image
-      run: |
-        SHORT_SHA=${GITHUB_SHA:0:8}
-        
-        # Determine build context
-        if [ "${{ matrix.service }}" == "frontend" ]; then
-          BUILD_CONTEXT="./client"
-          DOCKERFILE="./client/Dockerfile"
-        elif [ "${{ matrix.service }}" == "auth" ]; then
-          BUILD_CONTEXT="./backend/auth"
-          DOCKERFILE="./backend/auth/Dockerfile"
-        elif [ "${{ matrix.service }}" == "discounts" ]; then
-          BUILD_CONTEXT="./backend/discounts"
-          DOCKERFILE="./backend/discounts/Dockerfile"
-        elif [ "${{ matrix.service }}" == "items" ]; then
-          BUILD_CONTEXT="./backend/items"
-          DOCKERFILE="./backend/items/Dockerfile"
-        fi
-        
-        IMAGE_TAG="${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:restauranty-${{ matrix.service }}-$SHORT_SHA"
-        
-        echo "Building $IMAGE_TAG from branch: ${{ github.ref }}"
-        echo "Context: $BUILD_CONTEXT"
-        
-        # Build and push
-        docker build -t $IMAGE_TAG -f $DOCKERFILE $BUILD_CONTEXT
-        docker push $IMAGE_TAG
-        
-        echo "image_tag=$IMAGE_TAG" >> $GITHUB_ENV
+      - name: Build and push Docker image
+        run: |
+          SHORT_SHA=${GITHUB_SHA:0:8}
+          
+          if [ "${{ matrix.service }}" == "frontend" ]; then
+            BUILD_CONTEXT="./client"
+            DOCKERFILE="./client/Dockerfile"
+          elif [ "${{ matrix.service }}" == "auth" ]; then
+            BUILD_CONTEXT="./backend/auth"
+            DOCKERFILE="./backend/auth/Dockerfile"
+          elif [ "${{ matrix.service }}" == "discounts" ]; then
+            BUILD_CONTEXT="./backend/discounts"
+            DOCKERFILE="./backend/discounts/Dockerfile"
+          elif [ "${{ matrix.service }}" == "items" ]; then
+            BUILD_CONTEXT="./backend/items"
+            DOCKERFILE="./backend/items/Dockerfile"
+          fi
+          
+          IMAGE_TAG="${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:restauranty-${{ matrix.service }}-$SHORT_SHA"
+          
+          echo "Building $IMAGE_TAG"
+          
+          docker build -t $IMAGE_TAG -f $DOCKERFILE $BUILD_CONTEXT
+          docker push $IMAGE_TAG
+          
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_ENV
 
-    - name: Update Kubernetes manifests
-      run: |
-        SHORT_SHA=${GITHUB_SHA:0:8}
-        IMAGE_TAG="${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:restauranty-${{ matrix.service }}-$SHORT_SHA"
-        
-        # Update deployment file
-        DEPLOYMENT_FILE="k8s/${{ matrix.service }}-deployment.yaml"
-        
-        if [ -f "$DEPLOYMENT_FILE" ]; then
-          echo "Updating $DEPLOYMENT_FILE with image: $IMAGE_TAG"
-          # Update any occurrence of the image
-          sed -i "s|image:.*${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:.*|image: $IMAGE_TAG|g" "$DEPLOYMENT_FILE"
-          # Also update generic patterns
-          sed -i "s|image:.*restauranty-${{ matrix.service }}.*|image: $IMAGE_TAG|g" "$DEPLOYMENT_FILE"
-        else
-          echo "Warning: $DEPLOYMENT_FILE not found"
-        fi
+      - name: Update Kubernetes manifests
+        run: |
+          SHORT_SHA=${GITHUB_SHA:0:8}
+          IMAGE_TAG="${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:restauranty-${{ matrix.service }}-$SHORT_SHA"
+          
+          DEPLOYMENT_FILE="k8s/${{ matrix.service }}-deployment.yaml"
+          
+          if [ -f "$DEPLOYMENT_FILE" ]; then
+            echo "Updating $DEPLOYMENT_FILE with image: $IMAGE_TAG"
+            sed -i "s|image:.*${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:.*|image: $IMAGE_TAG|g" "$DEPLOYMENT_FILE"
+            sed -i "s|image:.*restauranty-${{ matrix.service }}.*|image: $IMAGE_TAG|g" "$DEPLOYMENT_FILE"
+          fi
 
-    - name: Upload updated manifests
-      uses: actions/upload-artifact@v4
-      with:
-        name: k8s-manifests
-        path: k8s/
-        retention-days: 1
+      - name: Upload updated manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: k8s-manifests
+          path: k8s/
+          retention-days: 1
 
   deploy-to-eks:
     runs-on: ubuntu-latest
     needs: build-and-push
-    environment: production
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        ref: aws-eks-deployment  # Ensure checking out the right branch
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: 'aws-eks-deployment'
 
-    - name: Download manifests
-      uses: actions/download-artifact@v4
-      with:
-        name: k8s-manifests
-        path: k8s-deploy
+      - name: Download manifests
+        uses: actions/download-artifact@v4
+        with:
+          name: k8s-manifests
+          path: k8s-deploy
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-    - name: Configure kubectl for EKS
-      run: |
-        aws eks update-kubeconfig \
-          --region ${{ env.AWS_REGION }} \
-          --name ${{ env.EKS_CLUSTER_NAME }}
+      - name: Configure kubectl for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }}
 
-    - name: Create namespace if not exists
-      run: |
-        kubectl create namespace ${{ env.K8S_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+      - name: Create namespace if not exists
+        run: |
+          kubectl create namespace ${{ env.K8S_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
-    - name: Deploy all resources
-      run: |
-        echo "Deploying to EKS from branch: aws-eks-deployment"
-        echo "Using commit: ${{ github.sha }}"
-        
-        # Apply all YAML files
-        for file in k8s-deploy/*.yaml; do
-          if [ -f "$file" ]; then
-            echo "Applying: $(basename $file)"
-            kubectl apply -f "$file" -n ${{ env.K8S_NAMESPACE }}
-          fi
-        done
-
-    - name: Verify deployment
-      run: |
-        echo "=== Branch: aws-eks-deployment ==="
-        echo "=== Commit: ${{ github.sha }} ==="
-        echo ""
-        echo "=== Deployment Status ==="
-        kubectl get deployments -n ${{ env.K8S_NAMESPACE }}
-        
-        echo ""
-        echo "=== Pods Status ==="
-        kubectl get pods -n ${{ env.K8S_NAMESPACE }}
-        
-        echo ""
-        echo "=== Services Status ==="
-        kubectl get services -n ${{ env.K8S_NAMESPACE }}
-
-    - name: Wait for pods
-      run: |
-        echo "Waiting for pods to be ready..."
-        sleep 30
-        
-        READY=false
-        for i in {1..10}; do
-          READY_PODS=$(kubectl get pods -n ${{ env.K8S_NAMESPACE }} --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
-          TOTAL_PODS=$(kubectl get pods -n ${{ env.K8S_NAMESPACE }} --no-headers 2>/dev/null | wc -l)
+      - name: Deploy all resources
+        run: |
+          echo "Deploying to EKS"
           
-          if [ $READY_PODS -eq $TOTAL_PODS ] && [ $TOTAL_PODS -ge 5 ]; then
-            echo "✅ All $TOTAL_PODS pods are running!"
-            READY=true
-            break
-          fi
-          
-          echo "Attempt $i: $READY_PODS/$TOTAL_PODS pods ready"
-          sleep 10
-        done
-        
-        if [ "$READY" = "false" ]; then
-          echo "❌ Some pods are not ready"
-          kubectl describe pods -n ${{ env.K8S_NAMESPACE }}
-          exit 1
-        fi
+          for file in k8s-deploy/*.yaml; do
+            if [ -f "$file" ]; then
+              echo "Applying: $(basename $file)"
+              kubectl apply -f "$file" -n ${{ env.K8S_NAMESPACE }}
+            fi
+          done
 
-    - name: Test endpoints
-      run: |
-        echo "Testing service endpoints..."
-        
-        # Test auth service
-        kubectl run test-auth --image=curlimages/curl -n ${{ env.K8S_NAMESPACE }} --rm -i --restart=Never -- \
-          curl -s -o /dev/null -w "Auth: %{http_code}\n" http://auth:3001/api/auth/health || echo "Auth: Failed"
-        
-        # Test items service
-        kubectl run test-items --image=curlimages/curl -n ${{ env.K8S_NAMESPACE }} --rm -i --restart=Never -- \
-          curl -s -o /dev/null -w "Items: %{http_code}\n" http://items:3003/api/items || echo "Items: Failed"
-        
-        echo "✅ Deployment from aws-eks-deployment branch completed!"
+      - name: Verify deployment
+        run: |
+          echo "=== Deployment Status ==="
+          kubectl get deployments -n ${{ env.K8S_NAMESPACE }}
+          
+          echo ""
+          echo "=== Pods Status ==="
+          kubectl get pods -n ${{ env.K8S_NAMESPACE }}
+          
+          echo ""
+          echo "=== Services Status ==="
+          kubectl get services -n ${{ env.K8S_NAMESPACE }}
+
+      - name: Wait for pods
+        run: |
+          echo "Waiting for pods..."
+          sleep 30
+          
+          for i in {1..10}; do
+            READY_PODS=$(kubectl get pods -n ${{ env.K8S_NAMESPACE }} --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
+            TOTAL_PODS=$(kubectl get pods -n ${{ env.K8S_NAMESPACE }} --no-headers 2>/dev/null | wc -l)
+            
+            if [ $READY_PODS -eq $TOTAL_PODS ] && [ $TOTAL_PODS -ge 5 ]; then
+              echo "✅ All pods running!"
+              break
+            fi
+            
+            echo "Attempt $i: $READY_PODS/$TOTAL_PODS pods ready"
+            sleep 10
+          done
