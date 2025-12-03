@@ -1,0 +1,179 @@
+name: AKS Restauranty CI/CD
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'frontend/**'
+      - 'auth/**'
+      - 'discounts/**'
+      - 'items/**'
+      - 'k8s/**'
+  workflow_dispatch:
+
+env:
+  AZURE_CONTAINER_REGISTRY: acrchinmayee101
+  AKS_NAMESPACE: chinmayee
+  RESOURCE_GROUP: k8-Chinmayee
+  CLUSTER_NAME: cluster-chinmayee
+  AZURE_REGION: westeurope
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [frontend, auth, discounts, items]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Azure Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
+
+    - name: Build and push Docker image
+      run: |
+        SHORT_SHA=${GITHUB_SHA:0:8}
+        IMAGE_TAG="${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/restauranty-${{ matrix.service }}:$SHORT_SHA"
+        
+        # Build the image
+        docker build -t $IMAGE_TAG ./${{ matrix.service }}
+        
+        # Push to ACR
+        docker push $IMAGE_TAG
+        
+        # Also tag as latest
+        LATEST_TAG="${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/restauranty-${{ matrix.service }}:latest"
+        docker tag $IMAGE_TAG $LATEST_TAG
+        docker push $LATEST_TAG
+        
+        echo "image_tag=$IMAGE_TAG" >> $GITHUB_ENV
+
+    - name: Update Kubernetes manifests
+      run: |
+        SHORT_SHA=${GITHUB_SHA:0:8}
+        IMAGE_TAG="${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/restauranty-${{ matrix.service }}:$SHORT_SHA"
+        
+        # Update the specific deployment file
+        if [ "${{ matrix.service }}" == "frontend" ]; then
+          sed -i "s|image: acrchinmayee101.azurecr.io/restauranty-frontend:.*|image: $IMAGE_TAG|" k8s/frontend-deployment.yaml
+        elif [ "${{ matrix.service }}" == "auth" ]; then
+          sed -i "s|image: acrchinmayee101.azurecr.io/restauranty-auth:.*|image: $IMAGE_TAG|" k8s/auth-deployment.yaml
+        elif [ "${{ matrix.service }}" == "discounts" ]; then
+          sed -i "s|image: acrchinmayee101.azurecr.io/restauranty-discounts:.*|image: $IMAGE_TAG|" k8s/discounts-deployment.yaml
+        elif [ "${{ matrix.service }}" == "items" ]; then
+          sed -i "s|image: acrchinmayee101.azurecr.io/restauranty-items:.*|image: $IMAGE_TAG|" k8s/items-deployment.yaml
+        fi
+
+    - name: Upload updated manifests
+      uses: actions/upload-artifact@v4
+      with:
+        name: k8s-manifests-${{ matrix.service }}
+        path: k8s/${{ matrix.service }}-deployment.yaml
+        retention-days: 1
+
+  deploy-to-aks:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all manifests
+      run: |
+        mkdir -p k8s-combined
+        
+        # Download updated manifests
+        for service in frontend auth discounts items; do
+          if [ -f "k8s/$service-deployment.yaml" ]; then
+            echo "Copying $service manifest..."
+            cp k8s/$service-deployment.yaml k8s-combined/
+          fi
+        done
+        
+        # Copy all other k8s files
+        cp k8s/*.yaml k8s-combined/ 2>/dev/null || true
+        
+        echo "Files ready for deployment:"
+        ls -la k8s-combined/
+
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Set AKS context
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: ${{ env.RESOURCE_GROUP }}
+        cluster-name: ${{ env.CLUSTER_NAME }}
+
+    - name: Create namespace if not exists
+      run: |
+        kubectl create namespace ${{ env.AKS_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Deploy MongoDB first
+      run: |
+        echo "Deploying MongoDB..."
+        kubectl apply -f k8s-combined/mongodb-deployment.yaml -n ${{ env.AKS_NAMESPACE }}
+        
+        # Wait for MongoDB
+        sleep 30
+
+    - name: Deploy microservices
+      run: |
+        echo "Deploying services..."
+        
+        # Apply secrets
+        kubectl apply -f k8s-combined/secrets.yaml -n ${{ env.AKS_NAMESPACE }}
+        
+        # Deploy backend services
+        kubectl apply -f k8s-combined/auth-deployment.yaml -n ${{ env.AKS_NAMESPACE }}
+        kubectl apply -f k8s-combined/discounts-deployment.yaml -n ${{ env.AKS_NAMESPACE }}
+        kubectl apply -f k8s-combined/items-deployment.yaml -n ${{ env.AKS_NAMESPACE }}
+        
+        # Deploy frontend
+        kubectl apply -f k8s-combined/frontend-deployment.yaml -n ${{ env.AKS_NAMESPACE }}
+
+    - name: Deploy ingress
+      run: |
+        echo "Deploying ingress..."
+        kubectl apply -f k8s-combined/ingress.yaml -n ${{ env.AKS_NAMESPACE }}
+
+    - name: Verify deployment
+      run: |
+        echo "=== Deployment Status ==="
+        kubectl get deployments -n ${{ env.AKS_NAMESPACE }} 2>/dev/null || echo "No deployments found"
+        
+        echo ""
+        echo "=== Pods Status ==="
+        kubectl get pods -n ${{ env.AKS_NAMESPACE }} 2>/dev/null || echo "No pods found"
+        
+        echo ""
+        echo "=== Services Status ==="
+        kubectl get services -n ${{ env.AKS_NAMESPACE }} 2>/dev/null || echo "No services found"
+
+    - name: Health check
+      run: |
+        echo "Checking deployment health..."
+        sleep 30
+        
+        # Count running pods
+        RUNNING_PODS=$(kubectl get pods -n ${{ env.AKS_NAMESPACE }} --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l || echo "0")
+        echo "Running pods: $RUNNING_PODS"
+        
+        if [ $RUNNING_PODS -ge 3 ]; then
+          echo "✅ Deployment looks good!"
+        else
+          echo "⚠️ Some pods might not be running yet"
+        fi
