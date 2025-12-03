@@ -79,13 +79,6 @@ jobs:
             sed -i "s|image:.*restauranty-${{ matrix.service }}.*|image: $IMAGE_TAG|g" "$DEPLOYMENT_FILE"
           fi
 
-      - name: Upload updated manifests
-        uses: actions/upload-artifact@v4
-        with:
-          name: k8s-manifests
-          path: k8s/
-          retention-days: 1
-
   deploy-to-eks:
     runs-on: ubuntu-latest
     needs: build-and-push
