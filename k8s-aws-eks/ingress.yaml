@@ -9,7 +9,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: restauranty.diogohack.shop
+  - host: restauranty.diogohack.shop # domain
     http:
       paths:
       - backend:
