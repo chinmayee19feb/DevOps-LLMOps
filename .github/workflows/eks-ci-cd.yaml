@@ -89,11 +89,7 @@ jobs:
         with:
           ref: 'aws-eks-deployment'
 
-      - name: Download manifests
-        uses: actions/download-artifact@v4
-        with:
-          name: k8s-manifests
-          path: k8s-deploy
+
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
