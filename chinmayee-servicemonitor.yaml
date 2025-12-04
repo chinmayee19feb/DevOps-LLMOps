@@ -1,0 +1,30 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: chinmayee-servicemonitor
+  namespace: prometheus
+  labels:
+    release: stable
+spec:
+  namespaceSelector:
+    matchNames:
+      - chinmayee
+  selector:
+    matchLabels:
+      prometheus: enabled
+  endpoints:
+    - targetPort: 80
+      path: /metrics
+      interval: 30s
+    - targetPort: 3001
+      path: /metrics
+      interval: 30s
+    - targetPort: 3002
+      path: /metrics
+      interval: 30s
+    - targetPort: 3003
+      path: /metrics
+      interval: 30s
+    - targetPort: 27017
+      path: /metrics
+      interval: 30s
